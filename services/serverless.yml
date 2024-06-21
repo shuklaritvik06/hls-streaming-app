@@ -1,0 +1,344 @@
+org: ritvik
+app: web-streamer
+service: web-streamer-app
+custom:
+  bucketName: web-streamer-ritvik
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-west-2
+  versionFunctions: false
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - 'sqs:*'
+          Resource: !GetAtt WebStreamerQueue.Arn
+        - Effect: Allow
+          Action:
+            - 'ecs:*'
+          Resource: !Ref WebStreamTaskDefinition
+        - Effect: Allow
+          Action:
+            - 'iam:PassRole'
+          Resource: 
+            - arn:aws:iam::${aws:accountId}:role/ecsTaskExecutionRole
+functions:
+  push-to-sqs:
+    handler: functions/push-sqs-messages/push-to-sqs.handler
+    timeout: 900
+    environment:
+      STAGE: ${sls:stage}
+  process-sqs-message:
+    handler: functions/process-sqs-messages/process-sqs-message.handler
+    timeout: 900
+    environment:
+      STAGE: ${sls:stage}
+resources:
+  Resources:
+    WebStreamVPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.0.0.0/16
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamPublicSubnetOne:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        CidrBlock: 10.0.0.0/24
+        AvailabilityZone: "us-west-2a"
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamPublicSubnetTwo:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        CidrBlock: 10.0.1.0/24
+        AvailabilityZone: "us-west-2b"
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamPrivateSubnetOne:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        CidrBlock: 10.0.2.0/24
+        AvailabilityZone: "us-west-2a"
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamPrivateSubnetTwo:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        CidrBlock: 10.0.3.0/24
+        AvailabilityZone: "us-west-2b"
+        Tags:
+        - Key: stack
+          Value: production
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+        - Key: stack
+          Value: production
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        InternetGatewayId: !Ref InternetGateway
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        Tags:
+          - Key: Name
+            Value: public-route-table
+    PrivateRouteTableOne:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        Tags:
+          - Key: Name
+            Value: private-route-table-1
+    PrivateRouteTableTwo:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref WebStreamVPC
+        Tags:
+          - Key: Name
+            Value: private-route-table-2
+    PublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: '0.0.0.0/0'
+        GatewayId: !Ref InternetGateway
+    PublicSubnetOneRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref WebStreamPublicSubnetOne
+        RouteTableId: !Ref PublicRouteTable
+    PublicSubnetTwoRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref WebStreamPublicSubnetTwo
+        RouteTableId: !Ref PublicRouteTable
+    PrivateSubnetOneRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref WebStreamPrivateSubnetOne
+        RouteTableId: !Ref PrivateRouteTableOne
+    PrivateSubnetTwoRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref WebStreamPrivateSubnetTwo
+        RouteTableId: !Ref PrivateRouteTableTwo
+    NATGatewayEIPOne:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+    NATGatewayOne:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt NATGatewayEIPOne.AllocationId
+        SubnetId: !Ref WebStreamPublicSubnetOne
+        Tags:
+        - Key: stack
+          Value: production
+    RouteNATGatewayOne:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTableOne
+        DestinationCidrBlock: '0.0.0.0/0'
+        NatGatewayId: !Ref NATGatewayOne
+    NATGatewayEIPTwo:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+    NATGatewayTwo:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt NATGatewayEIPTwo.AllocationId
+        SubnetId: !Ref WebStreamPublicSubnetTwo
+        Tags:
+        - Key: stack
+          Value: production
+    RouteNATGatewayTwo:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTableTwo
+        DestinationCidrBlock: '0.0.0.0/0'
+        NatGatewayId: !Ref NATGatewayTwo
+    WebStreamerQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: web-streamer-queue
+        VisibilityTimeout: 910
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt WebStreamerDLQ.Arn
+          maxReceiveCount: 5
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamerDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: web-streamer-dlq
+        Tags:
+        - Key: stack
+          Value: production
+    S3BucketTransformedVideos:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: transformed-videos-streamer-ritvik
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          IgnorePublicAcls: false
+          BlockPublicPolicy: false
+          RestrictPublicBuckets: false
+        Tags:
+        - Key: stack
+          Value: production
+    S3BucketWebStreamer:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: web-streamer-ritvik
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          IgnorePublicAcls: false
+          BlockPublicPolicy: false
+          RestrictPublicBuckets: false
+        NotificationConfiguration:
+          LambdaConfigurations:
+            - Event: 's3:ObjectCreated:Put'
+              Filter:
+                S3Key:
+                  Rules:
+                    - Name: suffix
+                      Value: .mp4
+              Function: !GetAtt PushDashtoDashsqsLambdaFunction.Arn
+        Tags:
+        - Key: stack
+          Value: production
+    SQSQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref WebStreamerQueue
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal: '*'
+              Action: 'sqs:SendMessage'
+              Resource: !GetAtt WebStreamerQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: arn:aws:s3:::${self:custom.bucketName}
+    LambdaInvokePermissionFromS3:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !GetAtt PushDashtoDashsqsLambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: s3.amazonaws.com
+        SourceArn: !Sub arn:aws:s3:::${self:custom.bucketName}
+    LambdaInvokePermissionFromSQS:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !GetAtt ProcessDashsqsDashmessageLambdaFunction.Arn
+        Action: lambda:InvokeFunction
+        Principal: sqs.amazonaws.com
+        SourceArn: !GetAtt WebStreamerQueue.Arn
+    SQSQueueLambdaEventSourceMapping:
+      Type: AWS::Lambda::EventSourceMapping
+      Properties:
+        BatchSize: 5
+        EventSourceArn: !GetAtt WebStreamerQueue.Arn
+        FunctionName: !GetAtt ProcessDashsqsDashmessageLambdaFunction.Arn
+        MaximumBatchingWindowInSeconds: 5
+        ScalingConfig:
+          MaximumConcurrency: 5
+        Enabled: true
+        FunctionResponseTypes:
+          - ReportBatchItemFailures
+    WebStreamRepository:
+      Type: AWS::ECR::Repository
+      Properties:
+        RepositoryName: web-streamer-repo
+        ImageScanningConfiguration: 
+          ScanOnPush: true
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamCluster:
+      Type: AWS::ECS::Cluster
+      Properties:
+        ClusterName: web-stream-cluster
+        ClusterSettings:
+          - Name: containerInsights
+            Value: enabled
+        CapacityProviders:
+          - FARGATE
+        Tags:
+        - Key: stack
+          Value: production
+    WebStreamTaskDefinition:
+      Type: AWS::ECS::TaskDefinition
+      Properties:
+        Family: web-stream-task
+        NetworkMode: awsvpc
+        RequiresCompatibilities:
+          - FARGATE
+        Cpu: '256'
+        Memory: '512'
+        PidMode: task
+        RuntimePlatform:
+          CpuArchitecture: X86_64
+          OperatingSystemFamily: LINUX
+        ContainerDefinitions:
+          - Name: web-stream-container
+            Image:
+              Fn::Join:
+                - ""
+                - - !Sub "${aws:accountId}.dkr.ecr.${aws:region}.amazonaws.com/"
+                  - !Ref WebStreamRepository
+                  - ":latest"
+            Essential: true
+            PortMappings:
+              - ContainerPort: 80
+                Protocol: tcp
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: /ecs/web-stream
+                awslogs-region: us-west-2
+                awslogs-stream-prefix: ecs
+        ExecutionRoleArn: arn:aws:iam::779221564416:role/ecsTaskExecutionRole
+        TaskRoleArn: arn:aws:iam::779221564416:role/ecsTaskExecutionRole
+        Tags:
+        - Key: stack
+          Value: production
+  Outputs:
+    S3BucketName:
+      Description: Name of the S3 bucket
+      Value: !Ref S3BucketWebStreamer
+    SQSQueueURL:
+      Description: URL of the SQS queue
+      Value: !Ref WebStreamerQueue
+    SQSQueueARN:
+      Description: ARN of the SQS queue
+      Value: !GetAtt WebStreamerQueue.Arn
+    ImageURL:
+      Description: URL of the Docker Image of Transcoder
+      Value:
+        Fn::Join:
+          - ""
+          - - !Sub "${aws:accountId}.dkr.ecr.${aws:region}.amazonaws.com/"
+            - !Ref WebStreamRepository
+            - ":latest"

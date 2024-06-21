@@ -1,0 +1,21 @@
+{
+  "name": "serverless",
+  "version": "1.0.0",
+  "description": "Serverless App",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "sls deploy",
+    "deploy:prod": "sls deploy --stage prod --debug",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "serverless": "^4.1.5"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1646.0",
+    "axios": "^1.7.2"
+  }
+}

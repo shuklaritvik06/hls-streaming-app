@@ -150,8 +150,8 @@ resources:
         AllocationId: !GetAtt NATGatewayEIPOne.AllocationId
         SubnetId: !Ref WebStreamPublicSubnetOne
         Tags:
-        - Key: stack
-          Value: production
+        - Key: Name
+          Value: nat-public-1
     RouteNATGatewayOne:
       Type: AWS::EC2::Route
       Properties:
@@ -168,8 +168,8 @@ resources:
         AllocationId: !GetAtt NATGatewayEIPTwo.AllocationId
         SubnetId: !Ref WebStreamPublicSubnetTwo
         Tags:
-        - Key: stack
-          Value: production
+        - Key: Name
+          Value: nat-public-2
     RouteNATGatewayTwo:
       Type: AWS::EC2::Route
       Properties:
@@ -342,3 +342,10 @@ resources:
           - - !Sub "${aws:accountId}.dkr.ecr.${aws:region}.amazonaws.com/"
             - !Ref WebStreamRepository
             - ":latest"
+    PrivateSubnetOne:
+      Description: Gives the id of the private subnet one
+      Value: !Ref WebStreamPrivateSubnetOne
+    PrivateSubnetTwo:
+      Description: Gives the name of the private subnet two
+      Value: !Ref WebStreamPrivateSubnetTwo
+    
